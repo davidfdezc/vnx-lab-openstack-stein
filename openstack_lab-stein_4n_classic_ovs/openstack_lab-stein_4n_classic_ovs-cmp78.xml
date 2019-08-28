@@ -1,0 +1,251 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<!--
+~~~~~~~~~~~~~~~~~~~~~~
+ VNX Sample scenarios
+~~~~~~~~~~~~~~~~~~~~~~
+
+Name:        openstack_lab-stein-cmp78
+
+Description: This is a subscenario of the Openstack tutorial including only nodes compute7 and 8.
+             The Openstack tutorial scenario designed to experiment with Openstack free and open-source 
+             software platform for cloud-computing. It is made of four LXC containers: 
+               - one controller
+               - one network node
+               - two compute nodes
+             Openstack version used: Stein.
+             The network configuration is based on the one named "Classic with Open vSwitch" described here:
+                  http://docs.openstack.org/mitaka/networking-guide/scenario-classic-ovs.html
+
+Author:      David Fernandez (david@dit.upm.es)
+
+This file is part of the Virtual Networks over LinuX (VNX) Project distribution. 
+(www: http://www.dit.upm.es/vnx - e-mail: vnx@dit.upm.es) 
+
+Copyright (C) 2019 Departamento de Ingenieria de Sistemas Telematicos (DIT)
+	      Universidad Politecnica de Madrid (UPM)
+              SPAIN
+-->
+
+<vnx xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+  xsi:noNamespaceSchemaLocation="/usr/share/xml/vnx/vnx-2.00.xsd">
+  <global>
+    <version>2.0</version>
+    <scenario_name>openstack_lab-stein-cmp78</scenario_name>
+    <ssh_key>/root/.ssh/id_rsa.pub</ssh_key>
+    <automac offset="4"/>
+    <!--vm_mgmt type="none"/-->
+    <vm_mgmt type="private" network="10.20.0.0" mask="24" offset="32">
+       <host_mapping />
+    </vm_mgmt> 
+    <vm_defaults>
+        <console id="0" display="no"/>
+        <console id="1" display="yes"/>
+    </vm_defaults>
+    <cmd-seq seq="step1-6">step1,step2,step3,step3b,step4,step5,step6</cmd-seq>
+    <cmd-seq seq="step4">step41,step42,step43,step44</cmd-seq>
+    <cmd-seq seq="step5">step51,step52,step53</cmd-seq>
+    <!-- start-all for 'noconfig' scenario: all installation steps included -->
+    <!--cmd-seq seq="start-all">step1,step2,step3,step4,step5,step6</cmd-seq-->
+    <!-- start-all for configured scenario: only network and compute node steps included -->
+    <cmd-seq seq="step10">step101,step102</cmd-seq>
+    <cmd-seq seq="start-all">step00,step42,step53</cmd-seq>
+    <cmd-seq seq="discover-hosts">step44</cmd-seq>
+  </global>
+
+  <net name="MgmtNet" mode="openvswitch" mtu="1450"/>
+  <net name="TunnNet" mode="openvswitch" mtu="1450"/>
+  <net name="VlanNet" mode="openvswitch" />
+  <net name="virbr0"  mode="virtual_bridge" managed="no"/>
+
+  <!-- 
+    ~~
+    ~~   C O M P U T E 7   N O D E
+    ~~
+  -->
+  <vm name="compute7" type="lxc" arch="x86_64">
+    <filesystem type="cow">filesystems/rootfs_lxc_ubuntu64-ostack-compute</filesystem>
+    <mem>2G</mem>
+    <if id="1" net="MgmtNet">
+      <ipv4>10.0.0.37/24</ipv4>
+    </if>
+    <if id="2" net="TunnNet">
+      <ipv4>10.0.1.37/24</ipv4>
+    </if>
+    <if id="3" net="VlanNet">
+    </if>
+    <if id="9" net="virbr0">
+      <ipv4>dhcp</ipv4>
+    </if>
+
+    <!-- Copy /etc/hosts file -->
+    <filetree seq="on_boot" root="/root/">conf/hosts</filetree>
+    <exec seq="on_boot" type="verbatim">
+        cat /root/hosts >> /etc/hosts;
+        rm /root/hosts;
+        # Create /dev/net/tun device 
+        #mkdir -p /dev/net/
+        #mknod -m 666 /dev/net/tun  c 10 200
+        # Change MgmtNet and TunnNet interfaces MTU
+        ifconfig eth1 mtu 1450
+        sed -i -e '/iface eth1 inet static/a \   mtu 1450' /etc/network/interfaces
+        ifconfig eth2 mtu 1450
+        sed -i -e '/iface eth2 inet static/a \   mtu 1450' /etc/network/interfaces
+        ifconfig eth3 mtu 1450
+        sed -i -e '/iface eth3 inet static/a \   mtu 1450' /etc/network/interfaces
+    </exec>
+
+    <!-- Copy ntp config and restart service -->
+    <!-- Note: not used because ntp cannot be used inside a container. Clocks are supposed to be synchronized
+         between the vms/containers and the host --> 
+    <!--filetree seq="on_boot" root="/etc/chrony/chrony.conf">conf/ntp/chrony-others.conf</filetree>
+    <exec seq="on_boot" type="verbatim">
+        service chrony restart
+    </exec-->
+
+    <!-- STEP 42: Compute service (Nova) -->
+    <filetree seq="step42" root="/etc/nova/">conf/compute7/nova/nova.conf</filetree>
+    <filetree seq="step42" root="/etc/nova/">conf/compute7/nova/nova-compute.conf</filetree>
+    <exec seq="step42" type="verbatim">
+        service nova-compute restart
+        #rm -f /var/lib/nova/nova.sqlite
+    </exec>
+
+    <!-- STEP 5: Network service (Neutron) -->
+    <filetree seq="step53" root="/etc/neutron/">conf/compute7/neutron/neutron.conf</filetree>
+    <filetree seq="step53" root="/etc/neutron/plugins/ml2/">conf/compute7/neutron/openvswitch_agent.ini</filetree>
+    <exec seq="step53" type="verbatim">
+        ovs-vsctl add-br br-vlan
+        ovs-vsctl add-port br-vlan eth3
+        service openvswitch-switch restart
+        service neutron-openvswitch-agent restart
+        service libvirtd restart
+        service nova-compute restart
+    </exec>
+
+    <!--filetree seq="step92" root="/usr/local/etc/tacker/">conf/controller/tacker/tacker.conf</filetree>
+    <exec seq="step92" type="verbatim">
+    </exec-->
+
+    <!-- STEP 10: Ceilometer service -->
+    <exec seq="step101" type="verbatim">
+		export DEBIAN_FRONTEND=noninteractive
+        apt-get -y install ceilometer-agent-compute
+    </exec>
+    <filetree seq="step102" root="/etc/ceilometer/">conf/compute7/ceilometer/ceilometer.conf</filetree>
+    <exec seq="step102" type="verbatim">
+		crudini --set /etc/nova/nova.conf DEFAULT instance_usage_audit True
+		crudini --set /etc/nova/nova.conf DEFAULT instance_usage_audit_period hour
+		crudini --set /etc/nova/nova.conf DEFAULT notify_on_state_change vm_and_task_state
+		crudini --set /etc/nova/nova.conf oslo_messaging_notifications driver messagingv2
+		service ceilometer-agent-compute restart
+		service nova-compute restart
+    </exec>
+
+  </vm>
+
+  <!-- 
+    ~~
+    ~~   C O M P U T E 8   N O D E
+    ~~
+  -->
+  <vm name="compute8" type="lxc" arch="x86_64">
+    <filesystem type="cow">filesystems/rootfs_lxc_ubuntu64-ostack-compute</filesystem>
+    <mem>2G</mem>
+    <if id="1" net="MgmtNet">
+      <ipv4>10.0.0.38/24</ipv4>
+    </if>
+    <if id="2" net="TunnNet">
+      <ipv4>10.0.1.38/24</ipv4>
+    </if>
+    <if id="3" net="VlanNet">
+    </if>
+    <if id="9" net="virbr0">
+      <ipv4>dhcp</ipv4>
+    </if>
+
+    <!-- Copy /etc/hosts file -->
+    <filetree seq="on_boot" root="/root/">conf/hosts</filetree>
+    <exec seq="on_boot" type="verbatim">
+        cat /root/hosts >> /etc/hosts;
+        rm /root/hosts;
+        # Create /dev/net/tun device 
+        #mkdir -p /dev/net/
+        #mknod -m 666 /dev/net/tun  c 10 200
+        # Change MgmtNet and TunnNet interfaces MTU
+        ifconfig eth1 mtu 1450
+        sed -i -e '/iface eth1 inet static/a \   mtu 1450' /etc/network/interfaces
+        ifconfig eth2 mtu 1450
+        sed -i -e '/iface eth2 inet static/a \   mtu 1450' /etc/network/interfaces
+        ifconfig eth3 mtu 1450
+        sed -i -e '/iface eth3 inet static/a \   mtu 1450' /etc/network/interfaces
+    </exec>
+
+    <!-- Copy ntp config and restart service -->
+    <!-- Note: not used because ntp cannot be used inside a container. Clocks are supposed to be synchronized
+         between the vms/containers and the host --> 
+    <!--filetree seq="on_boot" root="/etc/chrony/chrony.conf">conf/ntp/chrony-others.conf</filetree>
+    <exec seq="on_boot" type="verbatim">
+        service chrony restart
+    </exec-->
+
+    <!-- STEP 42: Compute service (Nova) -->
+    <filetree seq="step42" root="/etc/nova/">conf/compute8/nova/nova.conf</filetree>
+    <filetree seq="step42" root="/etc/nova/">conf/compute8/nova/nova-compute.conf</filetree>
+    <exec seq="step42" type="verbatim">
+        service nova-compute restart
+        #rm -f /var/lib/nova/nova.sqlite
+    </exec>
+
+    <!-- STEP 5: Network service (Neutron with Option 2: Self-service networks) -->
+    <filetree seq="step53" root="/etc/neutron/">conf/compute8/neutron/neutron.conf</filetree>
+    <filetree seq="step53" root="/etc/neutron/plugins/ml2/">conf/compute8/neutron/openvswitch_agent.ini</filetree>
+    <exec seq="step53" type="verbatim">
+        ovs-vsctl add-br br-vlan
+        ovs-vsctl add-port br-vlan eth3
+        service openvswitch-switch restart
+        service neutron-openvswitch-agent restart
+        service libvirtd restart
+        service nova-compute restart
+    </exec>
+
+    <!-- STEP 10: Ceilometer service -->
+    <exec seq="step101" type="verbatim">
+		export DEBIAN_FRONTEND=noninteractive
+        apt-get -y install ceilometer-agent-compute
+    </exec>
+    <filetree seq="step102" root="/etc/ceilometer/">conf/compute8/ceilometer/ceilometer.conf</filetree>
+    <exec seq="step102" type="verbatim">
+		crudini --set /etc/nova/nova.conf DEFAULT instance_usage_audit True
+		crudini --set /etc/nova/nova.conf DEFAULT instance_usage_audit_period hour
+		crudini --set /etc/nova/nova.conf DEFAULT notify_on_state_change vm_and_task_state
+		crudini --set /etc/nova/nova.conf oslo_messaging_notifications driver messagingv2
+		service ceilometer-agent-compute restart
+		service nova-compute restart
+    </exec>
+
+  </vm>
+
+  <!-- 
+    ~~
+    ~~   H O S T   N O D E
+    ~~
+  -->
+  <host>
+    <hostif net="MgmtNet">
+      <ipv4>10.0.0.1/24</ipv4>
+    </hostif>
+    <exec seq="step00" type="verbatim">
+    	echo "--\n-- Waiting for all VMs to be ssh ready...\n--"
+    </exec>
+    <exec seq="step00" type="verbatim">
+    	# Wait till ssh is accesible in all VMs
+    	while ! $( nc -z compute7 22 ); do sleep 1; done
+    	while ! $( nc -z compute8 22 ); do sleep 1; done
+    </exec>
+    <exec seq="step00" type="verbatim">
+    	echo "-- ...OK\n--"
+    </exec>
+  </host>
+
+</vnx>

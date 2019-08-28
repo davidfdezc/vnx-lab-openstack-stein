@@ -1,0 +1,1 @@
+../conf/controller/keystone/admin-openrc.sh
