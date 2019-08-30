@@ -68,7 +68,7 @@ echo "PermitRootLogin yes" >> /etc/ssh/sshd_config
 # calling "openstack service create..." commands
 #echo "LANG=en_US.UTF-8" > /etc/default/locale
 
-# Eliminate long delays at startup idue to network services
+# Eliminate long delays at startup due to network services
 sed -i -e 's/^timeout .*/timeout 10;/' /etc/dhcp/dhclient.conf 
 systemctl mask systemd-networkd-wait-online.service 
 
@@ -178,10 +178,6 @@ lxc.hook.autodev = sh -c "modprobe tun; cd \${LXC_ROOTFS_MOUNT}/dev; mkdir net; 
 lxc.cgroup.devices.allow = c 10:232 rwm
 lxc.hook.autodev = sh -c "cd \${LXC_ROOTFS_MOUNT}/dev; mknod -m 660 kvm c 10 232; chown root:\$(grep kvm \${LXC_ROOTFS_MOUNT}/etc/group | awk -F ':' '{print \$3}') kvm"
 EOF
- 
-
-}
-
 
 #
 # Do not modify under this line (or do it with care...)
